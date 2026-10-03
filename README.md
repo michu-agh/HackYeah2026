@@ -1,7 +1,8 @@
 # CrisisMesh — Emergency Mesh Network
 
-> **Kategoria: Defence
-> Autonomiczny, odporny na jamming i podsłuch system awaryjnej komunikacji radiowej dla mikrokontrolerów ESP32 oraz Raspberry Pi.**
+> **Kategoria:** Defence
+>
+> Autonomiczny, odporny na jamming i podsłuch system awaryjnej komunikacji radiowej dla mikrokontrolerów ESP32 oraz Raspberry Pi.
 
 ---
 
