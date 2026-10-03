@@ -1,6 +1,7 @@
 # CrisisMesh — Emergency Mesh Network
 
-> **Autonomiczny, odporny na jamming i podsłuch system awaryjnej komunikacji radiowej dla mikrokontrolerów ESP32 oraz Raspberry Pi, tworzony w ramach ścieżki Defence.**
+> **Kategoria: Defence
+> Autonomiczny, odporny na jamming i podsłuch system awaryjnej komunikacji radiowej dla mikrokontrolerów ESP32 oraz Raspberry Pi.**
 
 ---
 
@@ -8,7 +9,7 @@
 
 W przypadku nagłej utraty zasilania lub dostępu do internetu (np. w wyniku konfliktów zbrojnych, zmasowanych cyberataków czy katastrof naturalnych) kluczowym wyzwaniem staje się utrzymanie bezpiecznej łączności. **CrisisMesh** to odporny system komunikacji offline, który pozwala na tworzenie lokalnych, podziemnych sieci informacyjnych niepozostawiających żadnego śladu u operatorów telekomunikacyjnych.
 
-System opiera się na modułach **ESP32** zasilanych z małych źródeł energii (powerbanki, dynamo, małe panele solarne), które mogą być ukryte w przestrzeni publicznej. Bezdotykowo i bez pośrednictwa sieci GSM przekazują oraz odbierają zaszyfrowane meldunki, tworząc stabilną siatkę połączeń (*mesh*).
+System opiera się na modułach **ESP32** zasilanych z małych źródeł energii (powerbanki, dynamo, małe panele solarne), które mogą być ukryte w przestrzeni publicznej. Bezdotykowo i bez pośrednictwa sieci GSM przekazują oraz odbierają zaszyfrowane meldunki, tworząc stabilną siatkę połączeń.
 
 ---
 
