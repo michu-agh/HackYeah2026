@@ -1,114 +1,220 @@
+#include <Arduino.h>
 #include <esp_now.h>
 #include <WiFi.h>
+#include <Wire.h>
 #include "mbedtls/gcm.h"
-#include <LiquidCrystal.h>
 
-#define LCD_RS 0
-#define LCD_E  1
-#define LCD_D4 3
-#define LCD_D5 4
-#define LCD_D6 5
-#define LCD_D7 6
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 
-LiquidCrystal lcd(LCD_RS, LCD_E, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
+#include "esp_idf_version.h"
+
+// =====================================================
+// OLED SSD1306 128x64 I2C
+// =====================================================
+
+#define OLED_WIDTH 128
+#define OLED_HEIGHT 64
+
+#define OLED_SDA 4
+#define OLED_SCL 5
+
+#define OLED_ADDRESS 0x3C
+
+Adafruit_SSD1306 display(
+    OLED_WIDTH,
+    OLED_HEIGHT,
+    &Wire,
+    -1
+);
+
+// =====================================================
+// AES
+// =====================================================
 
 const unsigned char AES_KEY[32] =
     "TajnyKluczKryzysowy256Bitow!!!";
 
 uint8_t plaintextBuffer[223];
 
+// =====================================================
+// WIADOMOSC OLED
+// =====================================================
 
-char lcdMessage[223] = "Czekam na wiadomosc...";
-volatile bool newMessage = true;
+char oledMessage[223] = "Czekam na wiadomosc...";
+char pendingMessage[223];
 
-int scrollPosition = 0;
+volatile bool newMessage = false;
 
-unsigned long lastScrollTime = 0;
+// =====================================================
+// PAGINACJA OLED
+// =====================================================
 
-// szybkość przesuwania tekstu
-const unsigned long SCROLL_DELAY = 350;
+// Font Adafruit przy textSize(1):
+// około 21 znaków w wierszu
+// 8 wierszy na ekranie
+//
+// 21 * 8 = ~168 znaków
+//
+// Dajemy trochę mniej, żeby było bezpiecznie.
 
-void displayMessage()
+const int CHARS_PER_PAGE = 150;
+
+int currentPage = 0;
+int totalPages = 1;
+
+unsigned long lastPageChange = 0;
+
+const unsigned long PAGE_TIME = 3000;
+
+// =====================================================
+// WYSWIETLENIE STRONY WIADOMOSCI
+// =====================================================
+
+void displayPage()
 {
-    int length = strlen(lcdMessage);
+    display.clearDisplay();
 
-    if (length <= 32)
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+
+    display.setCursor(0, 0);
+
+    int length = strlen(oledMessage);
+
+    int start =
+        currentPage * CHARS_PER_PAGE;
+
+    int end =
+        start + CHARS_PER_PAGE;
+
+    if (end > length)
     {
-        lcd.clear();
+        end = length;
+    }
 
-        // pierwsze 16 znaków
-        lcd.setCursor(0, 0);
+    // ============================
+    // Tekst wiadomości
+    // ============================
 
-        for (int i = 0; i < 16 && i < length; i++)
+    for (int i = start; i < end; i++)
+    {
+        display.print(oledMessage[i]);
+    }
+
+    // ============================
+    // Numer strony
+    // ============================
+
+    if (totalPages > 1)
+    {
+        display.setCursor(90, 56);
+
+        display.print(currentPage + 1);
+        display.print("/");
+        display.print(totalPages);
+    }
+
+    display.display();
+}
+
+// =====================================================
+// NOWA WIADOMOSC
+// =====================================================
+
+void showNewMessage()
+{
+    int length = strlen(oledMessage);
+
+    totalPages =
+        (length + CHARS_PER_PAGE - 1)
+        / CHARS_PER_PAGE;
+
+    if (totalPages < 1)
+    {
+        totalPages = 1;
+    }
+
+    currentPage = 0;
+
+    lastPageChange = millis();
+
+    displayPage();
+}
+
+// =====================================================
+// AKTUALIZACJA OLED
+// =====================================================
+
+void updateOLED()
+{
+    // ==========================================
+    // Odebrano nową wiadomość
+    // ==========================================
+
+    if (newMessage)
+    {
+        strncpy(
+            oledMessage,
+            pendingMessage,
+            sizeof(oledMessage) - 1
+        );
+
+        oledMessage[
+            sizeof(oledMessage) - 1
+        ] = '\0';
+
+        newMessage = false;
+
+        showNewMessage();
+
+        return;
+    }
+
+    // ==========================================
+    // Jeśli jest więcej niż jedna strona
+    // automatycznie przełączamy
+    // ==========================================
+
+    if (totalPages > 1)
+    {
+        if (
+            millis() - lastPageChange
+            >= PAGE_TIME
+        )
         {
-            lcd.print(lcdMessage[i]);
-        }
+            lastPageChange = millis();
 
-        // kolejne 16 znaków
-        if (length > 16)
-        {
-            lcd.setCursor(0, 1);
+            currentPage++;
 
-            for (int i = 16; i < 32 && i < length; i++)
+            if (currentPage >= totalPages)
             {
-                lcd.print(lcdMessage[i]);
+                currentPage = 0;
             }
+
+            displayPage();
         }
-
-        return;
-    }
-
-
-    if (millis() - lastScrollTime < SCROLL_DELAY)
-        return;
-
-    lastScrollTime = millis();
-
-    lcd.clear();
-
-    lcd.setCursor(0, 0);
-
-    for (int i = 0; i < 16; i++)
-    {
-        int index = scrollPosition + i;
-
-        if (index < length)
-            lcd.print(lcdMessage[index]);
-        else
-            lcd.print(' ');
-    }
-
-
-    lcd.setCursor(0, 1);
-
-    for (int i = 0; i < 16; i++)
-    {
-        int index = scrollPosition + 16 + i;
-
-        if (index < length)
-            lcd.print(lcdMessage[index]);
-        else
-            lcd.print(' ');
-    }
-
-    scrollPosition++;
-
-    // po dojściu do końca zaczynamy od początku
-    if (scrollPosition > length)
-    {
-        scrollPosition = 0;
     }
 }
 
+// =====================================================
+// OBSLUGA ODEBRANEGO PAKIETU
+// =====================================================
 
-void OnDataRecv(
+void handleReceivedPacket(
     const uint8_t *mac,
     const uint8_t *incomingData,
     int len
 )
 {
     Serial.println();
-    Serial.println("========== ODEBRANO PAKIET ==========");
+    Serial.println(
+        "========== ODEBRANO PAKIET =========="
+    );
+
+    // =================================================
+    // MAC
+    // =================================================
 
     Serial.printf(
         "MAC nadajnika: %02X:%02X:%02X:%02X:%02X:%02X\n",
@@ -120,40 +226,76 @@ void OnDataRecv(
         mac[5]
     );
 
-    Serial.printf("Rozmiar pakietu: %d B\n", len);
+    Serial.printf(
+        "Rozmiar pakietu: %d B\n",
+        len
+    );
+
+    // =================================================
+    // Minimalny pakiet:
+    //
+    // 12 B IV
+    // 16 B TAG
+    // =================================================
 
     if (len < 28)
     {
-        Serial.println("BLAD: pakiet jest za krotki!");
+        Serial.println(
+            "BLAD: pakiet jest za krotki!"
+        );
+
         return;
     }
 
-    int ciphertext_len = len - 28;
+    int ciphertext_len =
+        len - 28;
 
     if (ciphertext_len > 222)
     {
-        Serial.println("BLAD: szyfrogram jest za duzy!");
+        Serial.println(
+            "BLAD: szyfrogram jest za duzy!"
+        );
+
         return;
     }
+
+    // =================================================
+    // PODZIAL PAKIETU
+    // =================================================
 
     uint8_t iv[12];
     uint8_t tag[16];
 
-    memcpy(iv, incomingData, 12);
-    memcpy(tag, incomingData + 12, 16);
+    memcpy(
+        iv,
+        incomingData,
+        12
+    );
 
-    const uint8_t *ciphertext = incomingData + 28;
+    memcpy(
+        tag,
+        incomingData + 12,
+        16
+    );
+
+    const uint8_t *ciphertext =
+        incomingData + 28;
+
+    // =================================================
+    // AES-256-GCM
+    // =================================================
 
     mbedtls_gcm_context ctx;
 
     mbedtls_gcm_init(&ctx);
 
-    int ret = mbedtls_gcm_setkey(
-        &ctx,
-        MBEDTLS_CIPHER_ID_AES,
-        AES_KEY,
-        256
-    );
+    int ret =
+        mbedtls_gcm_setkey(
+            &ctx,
+            MBEDTLS_CIPHER_ID_AES,
+            AES_KEY,
+            256
+        );
 
     if (ret != 0)
     {
@@ -167,33 +309,49 @@ void OnDataRecv(
         return;
     }
 
-    ret = mbedtls_gcm_auth_decrypt(
-        &ctx,
+    // =================================================
+    // DESZYFROWANIE
+    // =================================================
 
-        ciphertext_len,
+    ret =
+        mbedtls_gcm_auth_decrypt(
+            &ctx,
 
-        iv,
-        sizeof(iv),
+            ciphertext_len,
 
-        NULL,
-        0,
+            iv,
+            sizeof(iv),
 
-        tag,
-        sizeof(tag),
+            NULL,
+            0,
 
-        ciphertext,
+            tag,
+            sizeof(tag),
 
-        plaintextBuffer
-    );
+            ciphertext,
+
+            plaintextBuffer
+        );
 
     mbedtls_gcm_free(&ctx);
-===============================================
+
+    // =================================================
+    // POPRAWNA WIADOMOSC
+    // =================================================
 
     if (ret == 0)
     {
-        plaintextBuffer[ciphertext_len] = '\0';
+        plaintextBuffer[
+            ciphertext_len
+        ] = '\0';
 
-        Serial.println("GCM: AUTENTYKACJA OK");
+        Serial.println(
+            "GCM: AUTENTYKACJA OK"
+        );
+
+        Serial.println(
+            "Pakiet nie zostal zmodyfikowany."
+        );
 
         Serial.print("Tresc: ");
 
@@ -201,24 +359,32 @@ void OnDataRecv(
             (char *)plaintextBuffer
         );
 
+        // =============================================
+        // Kopiujemy tekst dla OLED
+        // =============================================
+
         strncpy(
-            lcdMessage,
+            pendingMessage,
             (char *)plaintextBuffer,
-            sizeof(lcdMessage) - 1
+            sizeof(pendingMessage) - 1
         );
 
-        lcdMessage[
-            sizeof(lcdMessage) - 1
+        pendingMessage[
+            sizeof(pendingMessage) - 1
         ] = '\0';
-
-        scrollPosition = 0;
 
         newMessage = true;
     }
 
+    // =================================================
+    // BLAD GCM
+    // =================================================
+
     else
     {
-        Serial.println("BLAD GCM!");
+        Serial.println(
+            "BLAD GCM!"
+        );
 
         Serial.println(
             "Pakiet zostal zmodyfikowany"
@@ -239,45 +405,176 @@ void OnDataRecv(
     );
 }
 
+// =====================================================
+// CALLBACK ESP-NOW
+//
+// Obsługa Arduino ESP32 2.x oraz 3.x
+// =====================================================
+
+#if ESP_IDF_VERSION_MAJOR >= 5
+
+void OnDataRecv(
+    const esp_now_recv_info_t *info,
+    const uint8_t *incomingData,
+    int len
+)
+{
+    handleReceivedPacket(
+        info->src_addr,
+        incomingData,
+        len
+    );
+}
+
+#else
+
+void OnDataRecv(
+    const uint8_t *mac,
+    const uint8_t *incomingData,
+    int len
+)
+{
+    handleReceivedPacket(
+        mac,
+        incomingData,
+        len
+    );
+}
+
+#endif
+
+// =====================================================
+// SETUP
+// =====================================================
+
 void setup()
 {
     Serial.begin(115200);
 
     delay(500);
 
-    lcd.begin(16, 2);
+    // =================================================
+    // I2C
+    // =================================================
 
-    lcd.clear();
+    Wire.begin(
+        OLED_SDA,
+        OLED_SCL
+    );
 
-    lcd.setCursor(0, 0);
-    lcd.print("CRISIS MESH");
+    // =================================================
+    // OLED
+    // =================================================
 
-    lcd.setCursor(0, 1);
-    lcd.print("START...");
+    if (
+        !display.begin(
+            SSD1306_SWITCHCAPVCC,
+            OLED_ADDRESS
+        )
+    )
+    {
+        Serial.println(
+            "BLAD OLED!"
+        );
 
-    WiFi.mode(WIFI_STA);
+        while (true)
+        {
+            delay(100);
+        }
+    }
+
+    // =================================================
+    // EKRAN STARTOWY
+    // =================================================
+
+    display.clearDisplay();
+
+    display.setTextSize(1);
+    display.setTextColor(
+        SSD1306_WHITE
+    );
+
+    display.setCursor(0, 0);
+
+    display.println(
+        "CRISIS MESH"
+    );
+
+    display.println();
+
+    display.println(
+        "OLED OK"
+    );
+
+    display.println(
+        "Start systemu..."
+    );
+
+    display.display();
+
+    delay(1500);
+
+    // =================================================
+    // WIADOMOSC OCZEKIWANIA
+    // =================================================
+
+    strcpy(
+        oledMessage,
+        "Czekam na wiadomosc..."
+    );
+
+    showNewMessage();
+
+    // =================================================
+    // WIFI
+    // =================================================
+
+    WiFi.mode(
+        WIFI_STA
+    );
 
     Serial.println();
+
     Serial.println(
         "Uruchamianie odbiornika ESP-NOW..."
     );
 
-    Serial.print("MAC odbiornika: ");
+    Serial.print(
+        "MAC odbiornika: "
+    );
 
     Serial.println(
         WiFi.macAddress()
     );
 
-    if (esp_now_init() != ESP_OK)
+    // =================================================
+    // ESP-NOW
+    // =================================================
+
+    if (
+        esp_now_init()
+        != ESP_OK
+    )
     {
         Serial.println(
             "BLAD inicjalizacji ESP-NOW!"
         );
 
-        lcd.clear();
+        display.clearDisplay();
 
-        lcd.setCursor(0, 0);
-        lcd.print("ESP-NOW ERROR");
+        display.setCursor(0, 0);
+
+        display.println(
+            "CRISIS MESH"
+        );
+
+        display.println();
+
+        display.println(
+            "ESP-NOW ERROR!"
+        );
+
+        display.display();
 
         return;
     }
@@ -297,31 +594,15 @@ void setup()
     Serial.println(
         "Czekam na pakiety..."
     );
-
-    // komunikat startowy
-    strcpy(
-        lcdMessage,
-        "Czekam na wiadomosc..."
-    );
-
-    scrollPosition = 0;
 }
+
+// =====================================================
+// LOOP
+// =====================================================
 
 void loop()
 {
-
-    if (newMessage)
-    {
-        scrollPosition = 0;
-
-        lcd.clear();
-
-        newMessage = false;
-
-        lastScrollTime = 0;
-    }
-
-    displayMessage();
+    updateOLED();
 
     delay(5);
 }
