@@ -3,10 +3,6 @@
 #include "mbedtls/gcm.h"
 #include <LiquidCrystal.h>
 
-// =====================================================
-// LCD 16x2 - tryb 4-bitowy
-// =====================================================
-
 #define LCD_RS 0
 #define LCD_E  1
 #define LCD_D4 3
@@ -16,18 +12,11 @@
 
 LiquidCrystal lcd(LCD_RS, LCD_E, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
 
-// =====================================================
-// AES
-// =====================================================
-
 const unsigned char AES_KEY[32] =
     "TajnyKluczKryzysowy256Bitow!!!";
 
 uint8_t plaintextBuffer[223];
 
-// =====================================================
-// Bufor wiadomości dla LCD
-// =====================================================
 
 char lcdMessage[223] = "Czekam na wiadomosc...";
 volatile bool newMessage = true;
@@ -39,18 +28,9 @@ unsigned long lastScrollTime = 0;
 // szybkość przesuwania tekstu
 const unsigned long SCROLL_DELAY = 350;
 
-// =====================================================
-// Wyświetlanie wiadomości
-// =====================================================
-
 void displayMessage()
 {
     int length = strlen(lcdMessage);
-
-    // =========================================
-    // Wiadomość <= 32 znaków
-    // mieści się na dwóch liniach
-    // =========================================
 
     if (length <= 32)
     {
@@ -78,9 +58,6 @@ void displayMessage()
         return;
     }
 
-    // =========================================
-    // Długa wiadomość -> przesuwanie
-    // =========================================
 
     if (millis() - lastScrollTime < SCROLL_DELAY)
         return;
@@ -88,10 +65,6 @@ void displayMessage()
     lastScrollTime = millis();
 
     lcd.clear();
-
-    // -----------------------------------------
-    // Pierwsza linia LCD
-    // -----------------------------------------
 
     lcd.setCursor(0, 0);
 
@@ -105,9 +78,6 @@ void displayMessage()
             lcd.print(' ');
     }
 
-    // -----------------------------------------
-    // Druga linia LCD
-    // -----------------------------------------
 
     lcd.setCursor(0, 1);
 
@@ -130,9 +100,6 @@ void displayMessage()
     }
 }
 
-// =====================================================
-// Callback ESP-NOW
-// =====================================================
 
 void OnDataRecv(
     const uint8_t *mac,
@@ -155,9 +122,6 @@ void OnDataRecv(
 
     Serial.printf("Rozmiar pakietu: %d B\n", len);
 
-    // minimum:
-    // 12 B IV
-    // 16 B TAG
     if (len < 28)
     {
         Serial.println("BLAD: pakiet jest za krotki!");
@@ -172,10 +136,6 @@ void OnDataRecv(
         return;
     }
 
-    // =================================================
-    // Podział pakietu
-    // =================================================
-
     uint8_t iv[12];
     uint8_t tag[16];
 
@@ -183,10 +143,6 @@ void OnDataRecv(
     memcpy(tag, incomingData + 12, 16);
 
     const uint8_t *ciphertext = incomingData + 28;
-
-    // =================================================
-    // AES-256-GCM
-    // =================================================
 
     mbedtls_gcm_context ctx;
 
@@ -231,10 +187,7 @@ void OnDataRecv(
     );
 
     mbedtls_gcm_free(&ctx);
-
-    // =================================================
-    // Poprawna wiadomość
-    // =================================================
+===============================================
 
     if (ret == 0)
     {
@@ -248,10 +201,6 @@ void OnDataRecv(
             (char *)plaintextBuffer
         );
 
-        // =============================================
-        // Kopiowanie wiadomości do bufora LCD
-        // =============================================
-
         strncpy(
             lcdMessage,
             (char *)plaintextBuffer,
@@ -262,15 +211,10 @@ void OnDataRecv(
             sizeof(lcdMessage) - 1
         ] = '\0';
 
-        // od początku scrolla
         scrollPosition = 0;
 
         newMessage = true;
     }
-
-    // =================================================
-    // Błąd uwierzytelniania
-    // =================================================
 
     else
     {
@@ -295,19 +239,11 @@ void OnDataRecv(
     );
 }
 
-// =====================================================
-// SETUP
-// =====================================================
-
 void setup()
 {
     Serial.begin(115200);
 
     delay(500);
-
-    // =================================================
-    // LCD
-    // =================================================
 
     lcd.begin(16, 2);
 
@@ -318,10 +254,6 @@ void setup()
 
     lcd.setCursor(0, 1);
     lcd.print("START...");
-
-    // =================================================
-    // WiFi
-    // =================================================
 
     WiFi.mode(WIFI_STA);
 
@@ -335,10 +267,6 @@ void setup()
     Serial.println(
         WiFi.macAddress()
     );
-
-    // =================================================
-    // ESP-NOW
-    // =================================================
 
     if (esp_now_init() != ESP_OK)
     {
@@ -379,13 +307,9 @@ void setup()
     scrollPosition = 0;
 }
 
-// =====================================================
-// LOOP
-// =====================================================
-
 void loop()
 {
-    // wiadomości krótkie wyświetlamy tylko raz
+
     if (newMessage)
     {
         scrollPosition = 0;
@@ -394,7 +318,6 @@ void loop()
 
         newMessage = false;
 
-        // wymuszenie natychmiastowego pierwszego renderu
         lastScrollTime = 0;
     }
 
