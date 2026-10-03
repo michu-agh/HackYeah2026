@@ -19,22 +19,22 @@ System opiera się na modułach **ESP32** zasilanych z małych źródeł energii
 Wiadomości wprowadzane są przez interfejs na urządzeniu **Raspberry Pi**, szyfrowane i rozsyłane w eterze do węzłów ESP32, po czym wyświetlane na lokalnych ekranach LCD 16x2.
 
 ```text
-[ Użytkownik ]
-      │
-      ▼
-[ Interfejs Raspberry Pi ]
-      │ (Wprowadzenie komunikatu)
-      ▼
-[ Szyfrowanie AES-GCM + HW IV ]
-      │
-      ▼
-[ Broadcast ESP-NOW (2.4 GHz) ] ───► [ Szybki Pre-filtr 0xEA51 ]
-                                              │
-                                              ▼
-                                    [ Weryfikacja Anti-Replay Counter ]
-                                              │
-                                              ▼
-                                    [ Deszyfrowanie & Weryfikacja MAC ]
-                                              │
-                                              ▼
-                                    [ Wyświetlacz LCD 16x2 ]
+[Użytkownik] 
+     │
+     ▼
+[Interfejs na Raspberry Pi] ───► (Wprowadzenie i walidacja komunikatu)
+     │
+     ▼
+[Szyfrowanie AES-128-GCM + HW IV] ───► (Generator IV, licznik sekwencji i tag MAC)
+     │
+     ▼
+[Broadcast ESP-NOW] ───► (Niskoopóźnieniowa transmisja radiowa 2.4 GHz)
+     │
+     ▼
+[Odbiorca (ESP32)] ───► (Pre-filtr 0xEA51 + weryfikacja licznika)
+     │
+     ▼
+[Rozszyfrowanie wiadomości] ───► (Sprawdzenie tagu MAC i dekodowanie treści)
+     │
+     ▼
+[Wyświetlenie na ekranie LCD 16x2]
