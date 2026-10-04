@@ -7,10 +7,6 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-// =====================================================
-// OLED SSD1306 128x64 I2C
-// =====================================================
-
 #define OLED_WIDTH 128
 #define OLED_HEIGHT 64
 
@@ -26,18 +22,10 @@ Adafruit_SSD1306 display(
     -1
 );
 
-// =====================================================
-// AES
-// =====================================================
-
 const unsigned char AES_KEY[32] =
     "yueF64hQDjUb87k2jqfm59LMG3EW";
 
 uint8_t plaintextBuffer[223];
-
-// =====================================================
-// OLED - prosta funkcja wyswietlania
-// =====================================================
 
 void showOLED(const char *title, const char *text = "")
 {
@@ -46,7 +34,6 @@ void showOLED(const char *title, const char *text = "")
     display.setTextSize(1);
     display.setTextColor(SSD1306_WHITE);
 
-    // automatyczne zawijanie tekstu
     display.setTextWrap(true);
 
     display.setCursor(0, 0);
@@ -61,10 +48,6 @@ void showOLED(const char *title, const char *text = "")
 
     display.display();
 }
-
-// =====================================================
-// ODBIOR ESP-NOW
-// =====================================================
 
 void OnDataRecv(
     const uint8_t *mac,
@@ -89,11 +72,6 @@ void OnDataRecv(
         "Rozmiar pakietu: %d B\n",
         len
     );
-
-    // =================================================
-    // Sprawdzenie minimalnego rozmiaru
-    // 12B IV + 16B TAG = 28B
-    // =================================================
 
     if (len < 28)
     {
@@ -126,12 +104,6 @@ void OnDataRecv(
         return;
     }
 
-    // =================================================
-    // Rozpakowanie pakietu
-    //
-    // [ IV 12B ][ TAG 16B ][ CIPHERTEXT ]
-    // =================================================
-
     uint8_t iv[12];
     uint8_t tag[16];
 
@@ -149,10 +121,6 @@ void OnDataRecv(
 
     const uint8_t *ciphertext =
         incomingData + 28;
-
-    // =================================================
-    // AES-GCM
-    // =================================================
 
     mbedtls_gcm_context ctx;
 
@@ -182,10 +150,6 @@ void OnDataRecv(
         return;
     }
 
-    // =================================================
-    // Deszyfrowanie + sprawdzenie TAG
-    // =================================================
-
     ret = mbedtls_gcm_auth_decrypt(
         &ctx,
 
@@ -207,10 +171,6 @@ void OnDataRecv(
 
     mbedtls_gcm_free(&ctx);
 
-    // =================================================
-    // POPRAWNA WIADOMOSC
-    // =================================================
-
     if (ret == 0)
     {
         plaintextBuffer[ciphertext_len] =
@@ -228,20 +188,11 @@ void OnDataRecv(
             (char *)plaintextBuffer
         );
 
-        // =============================================
-        // WYSWIETLENIE WIADOMOSCI NA OLED
-        // =============================================
-
         showOLED(
             "ODEBRANO:",
             (char *)plaintextBuffer
         );
     }
-
-    // =================================================
-    // BLAD AES / TAG
-    // =================================================
-
     else
     {
         Serial.println(
@@ -268,10 +219,6 @@ void OnDataRecv(
     );
 }
 
-// =====================================================
-// SETUP
-// =====================================================
-
 void setup()
 {
     Serial.begin(115200);
@@ -282,10 +229,6 @@ void setup()
     Serial.println(
         "Uruchamianie Crisis Mesh Receiver..."
     );
-
-    // =================================================
-    // I2C
-    // =================================================
 
     Wire.begin(
         OLED_SDA,
@@ -312,10 +255,6 @@ void setup()
         OLED_SCL
     );
 
-    // =================================================
-    // OLED
-    // =================================================
-
     if (!display.begin(
         SSD1306_SWITCHCAPVCC,
         OLED_ADDRESS
@@ -324,9 +263,6 @@ void setup()
         Serial.println(
             "BLAD inicjalizacji OLED!"
         );
-
-        // NIE robimy return.
-        // ESP-NOW nadal moze dzialac.
     }
     else
     {
@@ -341,10 +277,6 @@ void setup()
 
         delay(1000);
     }
-
-    // =================================================
-    // WIFI
-    // =================================================
 
     WiFi.mode(
         WIFI_STA
@@ -364,10 +296,6 @@ void setup()
         WiFi.macAddress()
     );
 
-    // =================================================
-    // ESP-NOW
-    // =================================================
-
     if (esp_now_init() != ESP_OK)
     {
         Serial.println(
@@ -386,10 +314,6 @@ void setup()
         "ESP-NOW uruchomiony."
     );
 
-    // =================================================
-    // CALLBACK
-    // =================================================
-
     esp_now_register_recv_cb(
         OnDataRecv
     );
@@ -402,24 +326,13 @@ void setup()
         "Czekam na pakiety..."
     );
 
-    // =================================================
-    // OLED - stan gotowosci
-    // =================================================
-
     showOLED(
         "CRISIS MESH",
         "Czekam na wiadomosc..."
     );
 }
 
-// =====================================================
-// LOOP
-// =====================================================
-
 void loop()
 {
-    // ESP-NOW odbiera asynchronicznie.
-    // Po odebraniu pakietu uruchamiany jest OnDataRecv().
-
     delay(100);
 }
