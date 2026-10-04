@@ -1,404 +1,383 @@
-#include <esp_now.h>
-#include <WiFi.h>
-#include "mbedtls/gcm.h"
-#include <LiquidCrystal.h>
+#include "SerialManager.hpp"
 
-// =====================================================
-// LCD 16x2 - tryb 4-bitowy
-// =====================================================
+#include <crow.h>
+#include <nlohmann/json.hpp>
 
-#define LCD_RS 0
-#define LCD_E  1
-#define LCD_D4 3
-#define LCD_D5 4
-#define LCD_D6 5
-#define LCD_D7 6
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <mutex>
+#include <random>
+#include <set>
+#include <sstream>
+#include <string>
 
-LiquidCrystal lcd(LCD_RS, LCD_E, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
+using json = nlohmann::json;
 
-// =====================================================
-// AES
-// =====================================================
+#ifndef CRISIS_WEB_DIR
+#define CRISIS_WEB_DIR "./web"
+#endif
 
-const unsigned char AES_KEY[32] =
-    "TajnyKluczKryzysowy256Bitow!!!";
+namespace {
 
-uint8_t plaintextBuffer[223];
+constexpr std::size_t MAX_TITLE_LENGTH = 60;
+constexpr std::size_t MAX_MESSAGE_LENGTH = 180;
 
-// =====================================================
-// Bufor wiadomości dla LCD
-// =====================================================
+std::string readFile(const std::string& path) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        return {};
+    }
 
-char lcdMessage[223] = "Czekam na wiadomosc...";
-volatile bool newMessage = true;
+    std::ostringstream buffer;
+    buffer << file.rdbuf();
+    return buffer.str();
+}
 
-int scrollPosition = 0;
+crow::response staticFile(const std::string& relativePath,
+                          const std::string& contentType) {
+    const std::string fullPath =
+        std::string(CRISIS_WEB_DIR) + "/" + relativePath;
 
-unsigned long lastScrollTime = 0;
+    const std::string body = readFile(fullPath);
 
-// szybkość przesuwania tekstu
-const unsigned long SCROLL_DELAY = 350;
+    if (body.empty()) {
+        return crow::response(404, "File not found");
+    }
 
-// =====================================================
-// Wyświetlanie wiadomości
-// =====================================================
+    crow::response response;
+    response.code = 200;
+    response.set_header("Content-Type", contentType);
+    response.set_header("Cache-Control", "no-cache");
+    response.body = body;
+    return response;
+}
 
-void displayMessage()
-{
-    int length = strlen(lcdMessage);
+std::uint64_t unixTimeMs() {
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(
+        system_clock::now().time_since_epoch()
+    ).count();
+}
 
-    // =========================================
-    // Wiadomość <= 32 znaków
-    // mieści się na dwóch liniach
-    // =========================================
+std::string makeMessageId() {
+    static std::atomic<std::uint64_t> counter{0};
 
-    if (length <= 32)
-    {
-        lcd.clear();
+    std::random_device rd;
+    const std::uint32_t randomPart = rd();
 
-        // pierwsze 16 znaków
-        lcd.setCursor(0, 0);
+    std::ostringstream out;
+    out << std::hex << std::uppercase
+        << unixTimeMs()
+        << "-"
+        << (randomPart & 0xFFFFu)
+        << "-"
+        << counter.fetch_add(1);
 
-        for (int i = 0; i < 16 && i < length; i++)
-        {
-            lcd.print(lcdMessage[i]);
-        }
+    return out.str();
+}
 
-        // kolejne 16 znaków
-        if (length > 16)
-        {
-            lcd.setCursor(0, 1);
+json makeError(const std::string& message) {
+    return {
+        {"ok", false},
+        {"error", message}
+    };
+}
 
-            for (int i = 16; i < 32 && i < length; i++)
-            {
-                lcd.print(lcdMessage[i]);
+crow::response jsonResponse(const json& data, int status = 200) {
+    crow::response response;
+    response.code = status;
+    response.set_header("Content-Type", "application/json; charset=utf-8");
+    response.body = data.dump();
+    return response;
+}
+
+// Keeps active browser WebSocket clients.
+// The serial thread can broadcast events to every connected dashboard.
+class WebSocketHub {
+public:
+    void add(crow::websocket::connection& connection) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        clients_.insert(&connection);
+    }
+
+    void remove(crow::websocket::connection& connection) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        clients_.erase(&connection);
+    }
+
+    void broadcast(const std::string& text) {
+        std::lock_guard<std::mutex> lock(mutex_);
+
+        for (auto* client : clients_) {
+            try {
+                client->send_text(text);
+            } catch (...) {
+                // Crow will call onclose/onerror for dead sockets.
             }
         }
-
-        return;
     }
 
-    // =========================================
-    // Długa wiadomość -> przesuwanie
-    // =========================================
+private:
+    std::mutex mutex_;
+    std::set<crow::websocket::connection*> clients_;
+};
 
-    if (millis() - lastScrollTime < SCROLL_DELAY)
-        return;
+json normalizeSerialEvent(const std::string& line) {
+    // If ESP32 sends JSON, forward it as structured JSON.
+    // Otherwise wrap the raw text so the frontend can still display it.
+    try {
+        json parsed = json::parse(line);
 
-    lastScrollTime = millis();
+        if (!parsed.contains("type")) {
+            parsed["type"] = "SERIAL_EVENT";
+        }
 
-    lcd.clear();
-
-    // -----------------------------------------
-    // Pierwsza linia LCD
-    // -----------------------------------------
-
-    lcd.setCursor(0, 0);
-
-    for (int i = 0; i < 16; i++)
-    {
-        int index = scrollPosition + i;
-
-        if (index < length)
-            lcd.print(lcdMessage[index]);
-        else
-            lcd.print(' ');
-    }
-
-    // -----------------------------------------
-    // Druga linia LCD
-    // -----------------------------------------
-
-    lcd.setCursor(0, 1);
-
-    for (int i = 0; i < 16; i++)
-    {
-        int index = scrollPosition + 16 + i;
-
-        if (index < length)
-            lcd.print(lcdMessage[index]);
-        else
-            lcd.print(' ');
-    }
-
-    scrollPosition++;
-
-    // po dojściu do końca zaczynamy od początku
-    if (scrollPosition > length)
-    {
-        scrollPosition = 0;
+        parsed["receivedAt"] = unixTimeMs();
+        return parsed;
+    } catch (...) {
+        return {
+            {"type", "SERIAL_LINE"},
+            {"line", line},
+            {"receivedAt", unixTimeMs()}
+        };
     }
 }
 
-// =====================================================
-// Callback ESP-NOW
-// =====================================================
+} // namespace
 
-void OnDataRecv(
-    const uint8_t *mac,
-    const uint8_t *incomingData,
-    int len
-)
-{
-    Serial.println();
-    Serial.println("========== ODEBRANO PAKIET ==========");
+int main(int argc, char** argv) {
+    std::string serialDevice = "/dev/ttyACM0";
+    int baudRate = 115200;
 
-    Serial.printf(
-        "MAC nadajnika: %02X:%02X:%02X:%02X:%02X:%02X\n",
-        mac[0],
-        mac[1],
-        mac[2],
-        mac[3],
-        mac[4],
-        mac[5]
-    );
-
-    Serial.printf("Rozmiar pakietu: %d B\n", len);
-
-    // minimum:
-    // 12 B IV
-    // 16 B TAG
-    if (len < 28)
-    {
-        Serial.println("BLAD: pakiet jest za krotki!");
-        return;
+    if (argc >= 2) {
+        serialDevice = argv[1];
+    }
+    if (argc >= 3) {
+        baudRate = std::stoi(argv[2]);
     }
 
-    int ciphertext_len = len - 28;
+    crow::SimpleApp app;
+    WebSocketHub wsHub;
+    SerialManager serial(serialDevice, baudRate);
 
-    if (ciphertext_len > 222)
-    {
-        Serial.println("BLAD: szyfrogram jest za duzy!");
-        return;
+    // ------------------------------------------------------------
+    // FRONTEND
+    // ------------------------------------------------------------
+
+    CROW_ROUTE(app, "/")([] {
+        return staticFile("index.html", "text/html; charset=utf-8");
+    });
+
+    CROW_ROUTE(app, "/style.css")([] {
+        return staticFile("style.css", "text/css; charset=utf-8");
+    });
+
+    CROW_ROUTE(app, "/app.js")([] {
+        return staticFile("app.js", "application/javascript; charset=utf-8");
+    });
+
+    // ------------------------------------------------------------
+    // API
+    // ------------------------------------------------------------
+
+    CROW_ROUTE(app, "/api/health")
+    ([] {
+        return jsonResponse({
+            {"ok", true},
+            {"service", "CrisisMesh RPi"}
+        });
+    });
+
+    CROW_ROUTE(app, "/api/status")
+    ([&serial] {
+        return jsonResponse({
+            {"ok", true},
+            {"serialConnected", serial.isConnected()},
+            {"serialDevice", serial.device()}
+        });
+    });
+
+    CROW_ROUTE(app, "/api/messages")
+    .methods(crow::HTTPMethod::Post)
+    ([&serial, &wsHub](const crow::request& request) {
+        json input;
+
+        try {
+            input = json::parse(request.body);
+        } catch (...) {
+            return jsonResponse(makeError("Nieprawidłowy JSON."), 400);
+        }
+
+        const std::string title =
+            input.value("title", std::string{});
+        const std::string message =
+            input.value("message", std::string{});
+        const std::string type =
+            input.value("type", std::string{"ALERT"});
+        const int priority =
+            input.value("priority", 2);
+        const int ttl =
+            input.value("ttl", 6);
+
+        if (message.empty()) {
+            return jsonResponse(makeError("Treść komunikatu jest pusta."), 400);
+        }
+
+        if (title.size() > MAX_TITLE_LENGTH) {
+            return jsonResponse(
+                makeError("Tytuł jest za długi. Maksymalnie 60 znaków."),
+                400
+            );
+        }
+
+        if (message.size() > MAX_MESSAGE_LENGTH) {
+            return jsonResponse(
+                makeError("Komunikat jest za długi. Maksymalnie 180 znaków."),
+                400
+            );
+        }
+
+        if (priority < 1 || priority > 3) {
+            return jsonResponse(makeError("Priorytet musi być 1..3."), 400);
+        }
+
+        if (ttl < 1 || ttl > 20) {
+            return jsonResponse(makeError("TTL musi być 1..20."), 400);
+        }
+
+        // --------------------------------------------------------
+        // THIS IS THE SERIAL PROTOCOL BOUNDARY.
+        //
+        // Currently RPi -> ESP32 Gateway is one JSON object per line:
+        //
+        // {"cmd":"SEND", ...}\n
+        //
+        // If your existing gateway expects another frame format,
+        // change ONLY this object / serial.writeLine() section.
+        // --------------------------------------------------------
+
+        const std::string id = makeMessageId();
+
+        json frame = {
+            {"cmd", "SEND"},
+            {"id", id},
+            {"type", type},
+            {"priority", priority},
+            {"ttl", ttl},
+            {"timestamp", unixTimeMs()},
+            {"title", title},
+            {"message", message}
+        };
+
+        if (!serial.writeLine(frame.dump())) {
+            return jsonResponse(
+                makeError("Brak połączenia z ESP32 Gateway."),
+                503
+            );
+        }
+
+        json event = {
+            {"type", "MESSAGE_SENT"},
+            {"id", id},
+            {"messageType", type},
+            {"priority", priority},
+            {"ttl", ttl},
+            {"title", title},
+            {"message", message},
+            {"timestamp", unixTimeMs()}
+        };
+
+        wsHub.broadcast(event.dump());
+
+        return jsonResponse({
+            {"ok", true},
+            {"id", id},
+            {"status", "sent_to_gateway"}
+        }, 202);
+    });
+
+    // Optional debug endpoint for direct serial testing.
+    CROW_ROUTE(app, "/api/serial/raw")
+    .methods(crow::HTTPMethod::Post)
+    ([&serial](const crow::request& request) {
+        json input;
+
+        try {
+            input = json::parse(request.body);
+        } catch (...) {
+            return jsonResponse(makeError("Nieprawidłowy JSON."), 400);
+        }
+
+        const std::string line = input.value("line", std::string{});
+
+        if (line.empty()) {
+            return jsonResponse(makeError("Brak pola 'line'."), 400);
+        }
+
+        if (!serial.writeLine(line)) {
+            return jsonResponse(makeError("Serial niedostępny."), 503);
+        }
+
+        return jsonResponse({{"ok", true}});
+    });
+
+    // ------------------------------------------------------------
+    // WEBSOCKET
+    // ------------------------------------------------------------
+
+    CROW_WEBSOCKET_ROUTE(app, "/ws")
+        .onopen([&wsHub](crow::websocket::connection& connection) {
+            wsHub.add(connection);
+
+            connection.send_text(json({
+                {"type", "WS_CONNECTED"},
+                {"timestamp", unixTimeMs()}
+            }).dump());
+        })
+        .onclose([&wsHub](crow::websocket::connection& connection,
+                          const std::string&,
+                          std::uint16_t) {
+            wsHub.remove(connection);
+        })
+        .onmessage([](crow::websocket::connection&,
+                      const std::string&,
+                      bool) {
+            // Dashboard currently doesn't need browser -> WS messages.
+        });
+
+    // ------------------------------------------------------------
+    // SERIAL -> BROWSER
+    // ------------------------------------------------------------
+
+    const bool serialStarted = serial.start(
+        [&wsHub](const std::string& line) {
+            std::cout << "[ESP] " << line << '\n';
+
+            const json event = normalizeSerialEvent(line);
+            wsHub.broadcast(event.dump());
+        }
+    );
+
+    if (!serialStarted) {
+        std::cerr
+            << "[WARN] Web UI will start, but ESP32 serial is unavailable.\n"
+            << "[WARN] Check device path and permissions (dialout group).\n";
     }
 
-    // =================================================
-    // Podział pakietu
-    // =================================================
-
-    uint8_t iv[12];
-    uint8_t tag[16];
-
-    memcpy(iv, incomingData, 12);
-    memcpy(tag, incomingData + 12, 16);
-
-    const uint8_t *ciphertext = incomingData + 28;
-
-    // =================================================
-    // AES-256-GCM
-    // =================================================
-
-    mbedtls_gcm_context ctx;
-
-    mbedtls_gcm_init(&ctx);
-
-    int ret = mbedtls_gcm_setkey(
-        &ctx,
-        MBEDTLS_CIPHER_ID_AES,
-        AES_KEY,
-        256
-    );
-
-    if (ret != 0)
-    {
-        Serial.printf(
-            "BLAD ustawiania klucza AES: %d\n",
-            ret
-        );
-
-        mbedtls_gcm_free(&ctx);
-
-        return;
-    }
-
-    ret = mbedtls_gcm_auth_decrypt(
-        &ctx,
-
-        ciphertext_len,
-
-        iv,
-        sizeof(iv),
-
-        NULL,
-        0,
-
-        tag,
-        sizeof(tag),
-
-        ciphertext,
-
-        plaintextBuffer
-    );
-
-    mbedtls_gcm_free(&ctx);
-
-    // =================================================
-    // Poprawna wiadomość
-    // =================================================
-
-    if (ret == 0)
-    {
-        plaintextBuffer[ciphertext_len] = '\0';
-
-        Serial.println("GCM: AUTENTYKACJA OK");
-
-        Serial.print("Tresc: ");
-
-        Serial.println(
-            (char *)plaintextBuffer
-        );
-
-        // =============================================
-        // Kopiowanie wiadomości do bufora LCD
-        // =============================================
-
-        strncpy(
-            lcdMessage,
-            (char *)plaintextBuffer,
-            sizeof(lcdMessage) - 1
-        );
-
-        lcdMessage[
-            sizeof(lcdMessage) - 1
-        ] = '\0';
-
-        // od początku scrolla
-        scrollPosition = 0;
-
-        newMessage = true;
-    }
-
-    // =================================================
-    // Błąd uwierzytelniania
-    // =================================================
-
-    else
-    {
-        Serial.println("BLAD GCM!");
-
-        Serial.println(
-            "Pakiet zostal zmodyfikowany"
-        );
-
-        Serial.println(
-            "lub klucz jest nieprawidlowy."
-        );
-
-        Serial.printf(
-            "Kod bledu mbedTLS: %d\n",
-            ret
-        );
-    }
-
-    Serial.println(
-        "======================================"
-    );
-}
-
-// =====================================================
-// SETUP
-// =====================================================
-
-void setup()
-{
-    Serial.begin(115200);
-
-    delay(500);
-
-    // =================================================
-    // LCD
-    // =================================================
-
-    lcd.begin(16, 2);
-
-    lcd.clear();
-
-    lcd.setCursor(0, 0);
-    lcd.print("CRISIS MESH");
-
-    lcd.setCursor(0, 1);
-    lcd.print("START...");
-
-    // =================================================
-    // WiFi
-    // =================================================
-
-    WiFi.mode(WIFI_STA);
-
-    Serial.println();
-    Serial.println(
-        "Uruchamianie odbiornika ESP-NOW..."
-    );
-
-    Serial.print("MAC odbiornika: ");
-
-    Serial.println(
-        WiFi.macAddress()
-    );
-
-    // =================================================
-    // ESP-NOW
-    // =================================================
-
-    if (esp_now_init() != ESP_OK)
-    {
-        Serial.println(
-            "BLAD inicjalizacji ESP-NOW!"
-        );
-
-        lcd.clear();
-
-        lcd.setCursor(0, 0);
-        lcd.print("ESP-NOW ERROR");
-
-        return;
-    }
-
-    Serial.println(
-        "ESP-NOW uruchomiony."
-    );
-
-    esp_now_register_recv_cb(
-        OnDataRecv
-    );
-
-    Serial.println(
-        "Odbiornik AES-256-GCM gotowy."
-    );
-
-    Serial.println(
-        "Czekam na pakiety..."
-    );
-
-    // komunikat startowy
-    strcpy(
-        lcdMessage,
-        "Czekam na wiadomosc..."
-    );
-
-    scrollPosition = 0;
-}
-
-// =====================================================
-// LOOP
-// =====================================================
-
-void loop()
-{
-    // wiadomości krótkie wyświetlamy tylko raz
-    if (newMessage)
-    {
-        scrollPosition = 0;
-
-        lcd.clear();
-
-        newMessage = false;
-
-        // wymuszenie natychmiastowego pierwszego renderu
-        lastScrollTime = 0;
-    }
-
-    displayMessage();
-
-    delay(5);
+    std::cout << "\nCrisisMesh dashboard:\n"
+              << "  http://0.0.0.0:8080\n\n";
+
+    // multithreaded() allows REST/WebSocket handling in parallel.
+    app.port(8080)
+       .bindaddr("0.0.0.0")
+       .multithreaded()
+       .run();
+
+    serial.stop();
+    return 0;
 }

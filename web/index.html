@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CrisisMesh // Tactical Network Control Panel</title>
+    
+    <!-- Typografia Taktyczna: Rajdhani + JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome - Ikony wektorowe -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        :root {
+            /* Ciemna paleta taktyczna + karmazynowe akcenty */
+            --bg-dark: #080b11;
+            --panel-bg: rgba(15, 22, 36, 0.65);
+            --panel-border: rgba(220, 38, 38, 0.25);
+            --panel-border-glow: rgba(220, 38, 38, 0.4);
+            
+            --accent-red: #ef4444;
+            --accent-red-bright: #ff2a2a;
+            --accent-red-glow: rgba(239, 68, 68, 0.4);
+            
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --text-dim: #4b5563;
+            
+            --status-green: #10b981;
+            --status-orange: #f59e0b;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Rajdhani', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            min-height: 100vh;
+            overflow-x: hidden;
+            background-image: 
+                radial-gradient(circle at 15% 15%, rgba(239, 68, 68, 0.08) 0%, transparent 45%),
+                radial-gradient(circle at 85% 85%, rgba(16, 185, 129, 0.04) 0%, transparent 45%),
+                linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+            background-size: 100% 100%, 100% 100%, 30px 30px, 30px 30px;
+            background-attachment: fixed;
+        }
+
+        /* --- Header Cyber/Tactical --- */
+        .top-nav {
+            background: rgba(8, 11, 17, 0.85);
+            backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--panel-border);
+            padding: 16px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .brand-logo {
+            width: 36px;
+            height: 36px;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid var(--accent-red);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--accent-red-bright);
+            box-shadow: 0 0 12px var(--accent-red-glow);
+        }
+
+        .brand-text h1 {
+            font-size: 1.4rem;
+            font-weight: 700;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .brand-text p {
+            font-size: 0.75rem;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--text-muted);
+            letter-spacing: 1px;
+        }
+
+        .node-tag {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid var(--accent-red);
+            color: var(--accent-red-bright);
+            padding: 4px 10px;
+            border-radius: 2px;
+            letter-spacing: 1px;
+        }
+
+        /* --- Main Layout --- */
+        .dashboard-grid {
+            max-width: 1600px;
+            margin: 28px auto;
+            padding: 0 24px;
+            display: grid;
+            grid-template-columns: 340px 1fr;
+            gap: 24px;
+        }
+
+        /* --- Glass Cards --- */
+        .glass-panel {
+            background: var(--panel-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--panel-border);
+            border-radius: 6px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+            margin-bottom: 24px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .glass-panel::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--accent-red), transparent);
+        }
+
+        .panel-header {
+            padding: 14px 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .panel-title {
+            font-size: 1.05rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .panel-title i {
+            color: var(--accent-red);
+        }
+
+        .panel-body {
+            padding: 20px;
+        }
+
+        /* --- Status Lists --- */
+        .stat-list {
+            list-style: none;
+        }
+
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            font-size: 0.9rem;
+        }
+
+        .stat-item:last-child {
+            border-bottom: none;
+        }
+
+        .stat-label {
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+        }
+
+        .stat-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .badge-status {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 8px currentColor;
+        }
+
+        .badge-status.online { background-color: var(--status-green); color: var(--status-green); }
+        .badge-status.offline { background-color: var(--accent-red); color: var(--accent-red); }
+
+        /* --- Form Elements --- */
+        .form-group {
+            margin-bottom: 18px;
+        }
+
+        .form-label {
+            display: block;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .form-control, .form-select {
+            width: 100%;
+            padding: 12px 14px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.88rem;
+            background: rgba(8, 11, 17, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            color: #ffffff;
+            transition: all 0.2s ease;
+        }
+
+        .form-control:focus, .form-select:focus {
+            outline: none;
+            border-color: var(--accent-red);
+            box-shadow: 0 0 12px var(--accent-red-glow);
+            background: rgba(8, 11, 17, 0.9);
+        }
+
+        textarea.form-control {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .char-counter {
+            text-align: right;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            margin-top: 6px;
+        }
+
+        /* --- Buttons --- */
+        .btn-tactical {
+            background: linear-gradient(135deg, var(--accent-red), #b91c1c);
+            color: #ffffff;
+            border: none;
+            padding: 14px 28px;
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 1rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            border-radius: 4px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            transition: all 0.2s ease;
+            box-shadow: 0 0 16px var(--accent-red-glow);
+        }
+
+        .btn-tactical:hover {
+            background: linear-gradient(135deg, var(--accent-red-bright), var(--accent-red));
+            box-shadow: 0 0 24px rgba(255, 42, 42, 0.6);
+            transform: translateY(-1px);
+        }
+
+        .btn-tactical:disabled {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-dim);
+            box-shadow: none;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-icon {
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-muted);
+            padding: 6px 12px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-icon:hover {
+            border-color: var(--accent-red);
+            color: #ffffff;
+        }
+
+        /* --- Data Tables --- */
+        .table-container {
+            overflow-x: auto;
+        }
+
+        .tactical-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            text-align: left;
+        }
+
+        .tactical-table th {
+            background: rgba(0, 0, 0, 0.3);
+            color: var(--text-muted);
+            padding: 12px 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 1px;
+        }
+
+        .tactical-table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            color: var(--text-main);
+        }
+
+        .tactical-table tr:hover td {
+            background: rgba(239, 68, 68, 0.04);
+        }
+
+        /* Priorytety Badges */
+        .p-tag {
+            padding: 2px 8px;
+            font-size: 0.7rem;
+            border-radius: 2px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .p-high { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid var(--accent-red); }
+        .p-mid { background: rgba(245, 158, 11, 0.2); color: #fde68a; border: 1px solid var(--status-orange); }
+        .p-low { background: rgba(16, 185, 129, 0.2); color: #a7f3d0; border: 1px solid var(--status-green); }
+
+        /* --- Live Terminal --- */
+        .terminal-box {
+            background: #04060a;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 4px;
+            padding: 14px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            height: 220px;
+            overflow-y: auto;
+            color: #d1d5db;
+        }
+
+        .term-row {
+            margin-bottom: 6px;
+            line-height: 1.4;
+        }
+
+        .term-time { color: var(--text-dim); margin-right: 8px; }
+        .term-tag { color: var(--accent-red); font-weight: bold; margin-right: 8px; }
+
+        .empty-log {
+            color: var(--text-dim);
+            text-align: center;
+            padding: 30px;
+            font-style: italic;
+        }
+
+        @media (max-width: 1024px) {
+            .dashboard-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- TOP NAVIGATION -->
+    <header class="top-nav">
+        <div class="brand">
+            <div class="brand-logo">
+                <i class="fa-solid fa-radio"></i>
+            </div>
+            <div class="brand-text">
+                <h1>CrisisMesh <span style="color: var(--accent-red); font-size: 0.8rem;">[v2.4]</span></h1>
+                <p>MESH RADIO TELEMETRY SYSTEM</p>
+            </div>
+        </div>
+        <div class="node-tag">
+            <i class="fa-solid fa-network-wired"></i> GATEWAY: LOCAL_NODE_01
+        </div>
+    </header>
+
+    <!-- DASHBOARD LAYOUT -->
+    <div class="dashboard-grid">
+
+        <!-- SIDEBAR -->
+        <aside>
+            <div class="glass-panel">
+                <div class="panel-header">
+                    <span class="panel-title"><i class="fa-solid fa-microchip"></i> Hardware Status</span>
+                </div>
+                <div class="panel-body">
+                    <ul class="stat-list">
+                        <li class="stat-item">
+                            <span class="stat-label">SERIAL INTERFACE</span>
+                            <span class="stat-value">
+                                <span id="serialDot" class="badge-status offline"></span>
+                                <span id="serialText">DISCONNECTED</span>
+                            </span>
+                        </li>
+                        <li class="stat-item">
+                            <span class="stat-label">DEVICE PORT</span>
+                            <span class="stat-value" id="serialDevice" style="color: var(--text-muted);">AUTO</span>
+                        </li>
+                        <li class="stat-item">
+                            <span class="stat-label">FREQ BAND</span>
+                            <span class="stat-value">2.4 GHz Mesh</span>
+                        </li>
+                        <li class="stat-item">
+                            <span class="stat-label">WEBSOCKET</span>
+                            <span class="stat-value">
+                                <span id="wsDot" class="badge-status offline"></span>
+                                <span id="wsText">CLOSED</span>
+                            </span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="glass-panel">
+                <div class="panel-header">
+                    <span class="panel-title"><i class="fa-solid fa-chart-line"></i> Metrics</span>
+                </div>
+                <div class="panel-body">
+                    <ul class="stat-list">
+                        <li class="stat-item">
+                            <span class="stat-label">TX PACKETS</span>
+                            <span class="stat-value" id="sentCount" style="color: var(--accent-red-bright);">0</span>
+                        </li>
+                        <li class="stat-item">
+                            <span class="stat-label">ACK RECEIVED</span>
+                            <span class="stat-value" id="ackCount" style="color: var(--status-green);">0</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </aside>
+
+        <!-- MAIN CONTENT -->
+        <main>
+
+            <!-- TRANSMISSION FORM -->
+            <div class="glass-panel">
+                <div class="panel-header">
+                    <span class="panel-title"><i class="fa-solid fa-tower-broadcast"></i> Transmit Payload</span>
+                </div>
+                <div class="panel-body">
+                    <form id="messageForm">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                            <div class="form-group">
+                                <label class="form-label" for="type">Payload Type</label>
+                                <select id="type" class="form-select">
+                                    <option value="ALERT">ALERT // Emergency</option>
+                                    <option value="INFO" selected>INFO // Standard</option>
+                                    <option value="COMMAND">COMMAND // Direct</option>
+                                    <option value="SOS">SOS // Critical</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="priority">Priority Level</label>
+                                <select id="priority" class="form-select">
+                                    <option value="1">P1 - Low</option>
+                                    <option value="2" selected>P2 - Medium</option>
+                                    <option value="3">P3 - High / Critical</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label" for="title">Header / Tag</label>
+                            <input type="text" id="title" class="form-control" placeholder="e.g. SECTOR_4_UPDATE" maxlength="32">
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label" for="message">Payload Text</label>
+                            <textarea id="message" class="form-control" placeholder="Enter encrypted broadcast message..." maxlength="64" required></textarea>
+                            <div class="char-counter"><span id="charCount">0</span> / 64 CHARS</div>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px;">
+                            <div id="sendStatus" style="font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;"></div>
+                            <button type="submit" id="sendButton" class="btn-tactical">
+                                <i class="fa-solid fa-paper-plane"></i> Transmit Packet
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- TRANSMISSION LOG -->
+            <div class="glass-panel">
+                <div class="panel-header">
+                    <span class="panel-title"><i class="fa-solid fa-list-check"></i> Outbound Buffer</span>
+                </div>
+                <div class="panel-body" style="padding: 0;">
+                    <div class="table-container">
+                        <table class="tactical-table">
+                            <thead>
+                                <tr>
+                                    <th>PACKET ID</th>
+                                    <th>TAG / TYPE</th>
+                                    <th>PAYLOAD DATA</th>
+                                    <th>PRIORITY</th>
+                                </tr>
+                            </thead>
+                            <tbody id="messageHistory">
+                                <tr>
+                                    <td colspan="4" class="empty-log">No outbound transmissions buffered.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LIVE TERMINAL -->
+            <div class="glass-panel">
+                <div class="panel-header">
+                    <span class="panel-title"><i class="fa-solid fa-terminal"></i> Serial Terminal Feed</span>
+                    <button id="clearEvents" class="btn-icon"><i class="fa-solid fa-trash"></i> CLEAR</button>
+                </div>
+                <div class="panel-body">
+                    <div id="eventLog" class="terminal-box">
+                        <div class="empty-log">Awaiting hardware telemetry from ESP32...</div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- LOGIKA JAVASCRIPT -->
+    <script>
+const $ = (id) => document.getElementById(id);
+
+const state = {
+    sent: 0,
+    messages: []
+};
+
+const messageInput = $("message");
+const charCount = $("charCount");
+const sendStatus = $("sendStatus");
+const sendButton = $("sendButton");
+const historyTable = $("messageHistory");
+const eventLog = $("eventLog");
+
+messageInput.addEventListener("input", () => {
+    charCount.textContent = messageInput.value.length;
+});
+
+$("messageForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const payload = {
+        type: $("type").value,
+        priority: Number($("priority").value),
+        title: $("title").value.trim(),
+        message: $("message").value.trim()
+    };
+
+    if (!payload.message) {
+        setSendStatus("ERROR: EMPTY MESSAGE", "red");
+        return;
+    }
+
+    sendButton.disabled = true;
+    setSendStatus("SENDING TO UART...", "orange");
+
+    try {
+        const response = await fetch("/api/messages", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+
+        if (!response.ok || !result.ok) {
+            throw new Error(result.error || `HTTP ${response.status}`);
+        }
+
+        state.sent++;
+
+        $("sentCount").textContent = state.sent;
+
+        state.messages.unshift({
+            ...payload,
+            id: result.id
+        });
+
+        renderHistory();
+        addEvent(`UART TX -> ${payload.message}`);
+
+        setSendStatus(
+            `TRANSMITTED [${result.id}]`,
+            "green"
+        );
+
+        $("message").value = "";
+        $("title").value = "";
+        charCount.textContent = "0";
+
+    } catch (error) {
+        console.error(error);
+
+        setSendStatus(
+            `ERROR: ${error.message}`,
+            "red"
+        );
+    }
+
+    sendButton.disabled = false;
+});
+
+function setSendStatus(text, color) {
+    sendStatus.textContent = text;
+
+    if (color === "green") {
+        sendStatus.style.color = "var(--status-green)";
+    } else if (color === "red") {
+        sendStatus.style.color = "var(--accent-red-bright)";
+    } else {
+        sendStatus.style.color = "var(--status-orange)";
+    }
+}
+
+function priorityBadge(priority) {
+    if (priority === 3)
+        return '<span class="p-tag p-high">HIGH</span>';
+
+    if (priority === 2)
+        return '<span class="p-tag p-mid">MED</span>';
+
+    return '<span class="p-tag p-low">LOW</span>';
+}
+
+function renderHistory() {
+    if (!state.messages.length) {
+        historyTable.innerHTML = `
+            <tr>
+                <td colspan="4" class="empty-log">
+                    No outbound transmissions buffered.
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    historyTable.innerHTML = state.messages
+        .slice(0, 10)
+        .map(item => `
+            <tr>
+                <td style="color: var(--accent-red-bright)">
+                    ${escapeHtml(item.id)}
+                </td>
+
+                <td>
+                    <strong>
+                        ${escapeHtml(item.title || item.type)}
+                    </strong>
+                </td>
+
+                <td>
+                    ${escapeHtml(item.message)}
+                </td>
+
+                <td>
+                    ${priorityBadge(item.priority)}
+                </td>
+            </tr>
+        `)
+        .join("");
+}
+
+function addEvent(text) {
+    if (!eventLog)
+        return;
+
+    const empty = eventLog.querySelector(".empty-log");
+
+    if (empty)
+        empty.remove();
+
+    const row = document.createElement("div");
+
+    row.className = "term-row";
+
+    const time = new Date().toLocaleTimeString();
+
+    row.innerHTML = `
+        <span class="term-time">[${time}]</span>
+        <span class="term-tag">&gt; TX</span>
+        <span>${escapeHtml(text)}</span>
+    `;
+
+    eventLog.prepend(row);
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+}
+
+async function refreshStatus() {
+    try {
+        const response = await fetch("/api/status");
+
+        if (!response.ok)
+            throw new Error("Backend error");
+
+        const data = await response.json();
+
+        const ok = Boolean(data.serialConnected);
+
+        $("serialDot").className =
+            `badge-status ${ok ? "online" : "offline"}`;
+
+        $("serialText").textContent =
+            ok ? "CONNECTED" : "DISCONNECTED";
+
+        $("serialDevice").textContent =
+            data.serialDevice || "/dev/ttyAMA0";
+
+        if ($("wsText")) {
+            $("wsText").textContent = "NOT USED";
+        }
+
+    } catch (error) {
+        console.error(error);
+
+        $("serialDot").className =
+            "badge-status offline";
+
+        $("serialText").textContent =
+            "BACKEND OFFLINE";
+    }
+}
+
+if ($("clearEvents")) {
+    $("clearEvents").addEventListener("click", () => {
+        eventLog.innerHTML = `
+            <div class="empty-log">
+                Local UART TX log.
+            </div>
+        `;
+    });
+}
+
+refreshStatus();
+setInterval(refreshStatus, 3000);
+    </script>
+</body>
+</html>
